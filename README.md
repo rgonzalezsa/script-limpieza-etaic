@@ -96,5 +96,5 @@ python3 -m unittest discover tests
 ## 6. Autores y Licencia
 
 * **Autores:** Rubén González Sánchez, Julen San Román Larraya y Eusebio Gómez Sánchez
-* **Titulación:** Grado en Ingeniería Informática / ADET · Universidad Pontificia de Salamanca (UPSA)
+* **Titulación:** Grado en Ingeniería Informática · Universidad Pontificia de Salamanca (UPSA)
 * **Licencia:** Material académico desarrollado para la asignatura ETAIC (2026-27). Prohibida su difusión externa sin autorización expresa de los autores y la coordinación docente.
