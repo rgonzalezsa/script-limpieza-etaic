@@ -8,8 +8,9 @@ Arquitectura (Deep Modules & Thermo-Nuclear Standards):
   - Deep Modules: Interfaz compacta `clean(df_raw, df_dict) -> CleaningResult`.
   - Code Judo: Vectorización pura en C/NumPy (`np.select`), sin bucles celda a celda.
   - File Size Constraint: Mantenido bajo el límite estricto de 1.000 líneas.
-  - Clasificación en dos niveles: FieldStatus y RecordStatus con jerarquía determinista.
+  - Jerarquía determinista de clasificación y exclusión por registro.
   - Preservación íntegra de registros originales y auditoría atómica.
+  - Declaración de IA: Código generado y optimizado con asistencia de IA como apoyo técnico (normativa ETAIC 2026-27).
 """
 
 from __future__ import annotations
@@ -81,7 +82,7 @@ class InconsistencyAlert:
 @dataclass(frozen=True)
 class CleaningConfig:
     recuperar_nota_x10: bool = False
-    excluir_en_revision: bool = False
+    excluir_en_revision: bool = True
     fecha_min: pd.Timestamp = pd.Timestamp("2026-10-05")
     fecha_max: pd.Timestamp = pd.Timestamp("2026-10-20")
 
@@ -125,7 +126,7 @@ class CleaningConfig:
 
     limites_fisicos: Mapping[str, tuple[float, float]] = field(
         default_factory=lambda: {
-            "edad": (16.0, 90.0), "curso": (1.0, 4.0), "asistencia_pct": (0.0, 100.0),
+            "edad": (17.0, 70.0), "curso": (1.0, 4.0), "asistencia_pct": (0.0, 100.0),
             "nota_media": (0.0, 10.0), "sue_horas_semana": (0.01, 24.0), "sue_horas_finde": (0.01, 24.0),
             "sue_pantalla_antes_min": (0.0, 1440.0), "dig_pantalla_h": (0.0, 24.0),
             "dig_redes_h": (0.0, 24.0), "dig_uso_nocturno_min": (0.0, 1440.0),
@@ -139,19 +140,19 @@ class CleaningConfig:
 
     rangos_operativos: Mapping[str, tuple[float, float]] = field(
         default_factory=lambda: {
-            "edad": (17.0, 50.0), "trabaja_horas": (0.0, 60.0), "desplaz_min": (0.0, 240.0),
-            "sue_horas_semana": (3.0, 12.0), "sue_horas_finde": (3.0, 14.0),
+            "edad": (17.0, 50.0), "trabaja_horas": (0.0, 50.0), "desplaz_min": (0.0, 180.0),
+            "sue_horas_semana": (4.5, 12.0), "sue_horas_finde": (5.0, 13.0),
             "sue_pantalla_antes_min": (0.0, 300.0), "sue_cafeina_tazas": (0.0, 15.0),
             "sue_despertares": (0.0, 10.0), "tra_horas_estudio_sem": (0.0, 80.0),
             "est_entregas_simult": (0.0, 20.0), "est_semanas_pico": (0.0, 20.0),
             "est_horas_estudio_examen": (0.0, 100.0), "fis_bebidas_energeticas_sem": (0.0, 30.0),
-            "fis_hidratacion_l": (0.0, 10.0), "eco_ingresos_mes": (0.0, 5000.0),
+            "fis_hidratacion_l": (0.0, 10.0), "eco_ingresos_mes": (0.0, 4000.0),
             "eco_gasto_mes": (0.0, 5000.0), "eco_coste_vivienda": (0.0, 3000.0),
             "eco_gasto_ocio": (0.0, 3000.0), "eco_ayuda_familiar": (0.0, 3000.0),
             "eco_gasto_transporte": (0.0, 1000.0), "mov_biblioteca_sem": (0.0, 21.0),
             "soc_asociaciones": (0.0, 20.0), "soc_amigos_clase": (0.0, 100.0),
             "soc_actividades_campus": (0.0, 50.0), "soc_eventos": (0.0, 50.0),
-            "fut_salario_esperado": (10000.0, 100000.0), "fut_certificaciones": (0.0, 20.0),
+            "fut_salario_esperado": (12000.0, 90000.0), "fut_certificaciones": (0.0, 20.0),
         }
     )
 
@@ -361,7 +362,11 @@ class DatasetCleaner:
         recom_map = {
             RecordStatus.DUPLICADO.value: "Descartado: fila duplicada",
             RecordStatus.NO_FIABLE.value: "Excluido: contiene anomalías físicas o lógicas críticas",
-            RecordStatus.EN_REVISION.value: "Revisión manual requerida (anomalías atípicas no críticas)",
+            RecordStatus.EN_REVISION.value: (
+                "Excluido por criterio estricto: valor atípico o inverosímil"
+                if self.config.excluir_en_revision
+                else "Revisión manual requerida (anomalías atípicas no críticas)"
+            ),
             RecordStatus.INCOMPLETO.value: "Admitido con reserva: faltan datos obligatorios para ciertos análisis",
             RecordStatus.VALIDO.value: "Admitido plenamente para análisis estadístico principal",
         }
@@ -729,7 +734,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--entrada", type=Path, default=Path("ETAIC_Dataset_VidaUniversitaria2026.xlsx"), help="Ruta al archivo Excel de origen.")
     p.add_argument("--salida-dir", type=Path, default=Path("salida_limpieza"), help="Directorio destino para exportaciones.")
     p.add_argument("--recuperar-nota-x10", action="store_true", default=False, help="Recupera notas entre 10 y 100 dividiendo por 10.")
-    p.add_argument("--excluir-en-revision", action="store_true", default=False, help="Excluye también registros en revisión.")
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--excluir-en-revision", dest="excluir_en_revision", action="store_true", default=True, help="Excluye registros atípicos (en revisión) por criterio estricto (por defecto).")
+    g.add_argument("--conservar-en-revision", dest="excluir_en_revision", action="store_false", help="Conserva registros en revisión en los datos limpios.")
     return p
 
 

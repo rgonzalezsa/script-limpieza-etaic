@@ -101,7 +101,7 @@ class TestPipelineCalidadEtaic(unittest.TestCase):
             "fut_postgrado": "No sé",
             "fut_perfil": "Técnico",
         }
-        self.cleaner = DatasetCleaner(config=CleaningConfig(recuperar_nota_x10=False))
+        self.cleaner = DatasetCleaner(config=CleaningConfig(recuperar_nota_x10=False, excluir_en_revision=False))
 
     def _crear_df(self, **modificaciones: Any) -> pd.DataFrame:
         """Crea un DataFrame con una sola fila modificando campos específicos."""
@@ -361,6 +361,18 @@ class TestPipelineCalidadEtaic(unittest.TestCase):
         self.assertEqual(clasif["estado_global"], RecordStatus.NO_FIABLE.value)
         self.assertIn("imposible", clasif["motivos"].lower())
         self.assertNotIn("falta campo obligatorio", clasif["motivos"].lower())
+
+    # 26. Política estricta: registros atípicos (EN_REVISION) quedan excluidos
+    def test_politica_estricta_excluye_atipicos(self) -> None:
+        cleaner_tajante = DatasetCleaner(config=CleaningConfig(excluir_en_revision=True))
+        df = self._crear_df(sue_horas_semana=14.0)
+        res = cleaner_tajante.clean(df)
+        clasif = res.clasificacion_registros.iloc[0]
+        self.assertEqual(clasif["estado_global"], RecordStatus.EN_REVISION.value)
+        self.assertTrue(clasif["excluido"])
+        self.assertEqual(len(res.datos_limpios), 0)
+        self.assertEqual(len(res.datos_excluidos), 1)
+        self.assertIn("atípico", clasif["motivos"].lower())
 
 
 if __name__ == "__main__":
