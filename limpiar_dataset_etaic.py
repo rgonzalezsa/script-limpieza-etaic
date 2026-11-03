@@ -31,14 +31,6 @@ import pandas as pd
 # ENUMERACIONES Y CONTRATOS DE DATOS INMUTABLES
 # ============================================================================
 
-class FieldStatus(str, Enum):
-    VALIDO = "VALIDO"
-    AUSENTE = "AUSENTE"
-    INVALIDO = "INVALIDO"
-    SOSPECHOSO = "SOSPECHOSO"
-    NO_APLICABLE = "NO_APLICABLE"
-
-
 class RecordStatus(str, Enum):
     VALIDO = "VALIDO"
     INCOMPLETO = "INCOMPLETO"
@@ -84,19 +76,6 @@ class InconsistencyAlert:
     ids: str
     afecta_estado_global: bool
     excluye_analisis_principal: bool
-
-
-@dataclass(frozen=True)
-class RecordClassification:
-    id: str
-    estado_global: RecordStatus
-    motivos: str
-    n_invalidos: int
-    n_sospechosos: int
-    n_ausentes: int
-    n_no_aplicables: int
-    excluido: bool
-    recomendacion: str
 
 
 @dataclass(frozen=True)
@@ -267,7 +246,7 @@ class Findings:
 
     def __init__(self, index: pd.Index) -> None:
         self.index = index
-        self._motivos: list[set[str]] = [set() for _ in range(len(index))]
+        self._motivos: dict[Any, set[str]] = {idx: set() for idx in index}
         self.mask_dup = pd.Series(False, index=index)
         self.mask_crit = pd.Series(False, index=index)
         self.mask_susp = pd.Series(False, index=index)
@@ -324,7 +303,7 @@ class Findings:
             self.n_no_aplicables.loc[m.index[m]] += 1
 
     def motivos_series(self) -> list[str]:
-        return ["; ".join(sorted(m)) if m else "Conforme a reglas" for m in self._motivos]
+        return ["; ".join(sorted(self._motivos[idx])) if self._motivos[idx] else "Conforme a reglas" for idx in self.index]
 
 
 # ============================================================================
@@ -360,7 +339,7 @@ class DatasetCleaner:
         df = self._validar_limites_y_fechas(df, df_dict, ledger, findings)
 
         # 4. Evaluación de obligatoriedad y preguntas condicionales
-        self._evaluar_condicionales(df, findings)
+        self._evaluar_condicionales(df_original, df, findings)
 
         # 5. Auditoría de coherencia inter-variable
         df_alertas, df_catalogo = self._evaluar_coherencia(df, findings)
@@ -450,14 +429,16 @@ class DatasetCleaner:
         df_sin = df.loc[~m_exactos]
         m_id_dup = df_sin["id"].duplicated(keep=False)
         if m_id_dup.any():
-            for r_id in df_sin.loc[m_id_dup, "id"].unique():
-                sub = df_sin[df_sin["id"] == r_id]
-                comp = sub.notna().sum(axis=1)
-                best_idx = comp.idxmax()
-                for idx in sub.index:
-                    if idx != best_idx:
-                        findings.flag_duplicado(pd.Series([True], index=[idx]), f"Colisión de ID con datos discrepantes (descartada por menor completitud: {comp[idx]} vs {comp[best_idx]})")
-                        ledger.record(str(r_id), "id", "id repetido con datos discrepantes", "descartado por menor completitud", "Id duplicado discrepante", "CRITICA")
+            # Code Judo: Deduplicación vectorizada por completitud sin bucles escalares
+            comp = df_sin.notna().sum(axis=1)
+            orden = df_sin.assign(_c=comp).sort_values(["id", "_c"], ascending=[True, False]).index
+            dup_discrep = df_sin.loc[orden].duplicated(subset=["id"], keep="first")
+            if dup_discrep.any():
+                dup_indices = orden[dup_discrep]
+                dup_mask = pd.Series(False, index=df.index)
+                dup_mask.loc[dup_indices] = True
+                findings.flag_duplicado(dup_mask, "Colisión de ID con datos discrepantes (descartada por menor completitud)")
+                ledger.record_batch(df.loc[dup_mask, "id"], "id", "id repetido con datos discrepantes", "descartado por menor completitud", "Id duplicado discrepante", "CRITICA")
         return df
 
     def _validar_limites_y_fechas(
@@ -524,11 +505,11 @@ class DatasetCleaner:
         return df
 
     def _evaluar_condicionales(
-        self, df: pd.DataFrame, findings: Findings
+        self, df_original: pd.DataFrame, df: pd.DataFrame, findings: Findings
     ) -> None:
         for col in self.config.columnas_obligatorias:
-            if col in df.columns:
-                nulls = df[col].isna()
+            if col in df_original.columns:
+                nulls = df_original[col].isna()
                 if nulls.any():
                     findings.flag_incompleto(nulls, f"Falta campo obligatorio '{col}'")
 
@@ -616,6 +597,14 @@ class DatasetCleaner:
                             "sue_horas_finde < (sue_horas_semana - 1)", "Duerme más de 1 hora menos en fin de semana (plausible por empleo nocturno u ocio)",
                             "Aviso analítico (No excluye registro)", False),
              sue_s.notna() & sue_f.notna() & (sue_f < (sue_s - 1.0))),
+            (ValidationRule("COH_MOV_03", "Valora aparcamiento pero omite modo de transporte", ("mov_modo", "mov_aparcar_facil"), Severity.INFORMATIVA,
+                            "mov_modo.isna() & mov_aparcar_facil.notna()", "Valora la facilidad para aparcar pero omite el modo principal de transporte",
+                            "Aviso analítico (No excluye registro)", False),
+             mm.isna() & ma.notna()),
+            (ValidationRule("COH_IA_03", "Uso habitual de IA sin especificar herramienta", ("ia_frecuencia", "ia_herramienta"), Severity.INFORMATIVA,
+                            "(ia_frecuencia > 1) & ia_herramienta.isna()", "Declara usar IA con frecuencia pero omite la herramienta utilizada",
+                            "Aviso analítico (No excluye registro)", False),
+             (ifreq > 1.0) & ih.isna()),
         ]
 
         alertas: list[InconsistencyAlert] = []
