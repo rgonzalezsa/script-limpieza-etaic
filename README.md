@@ -119,23 +119,10 @@ El motor cuenta con **26 pruebas automatizadas** que cubren valores físicamente
 python3 -m unittest discover tests
 ```
 
----
-
-## 7. Cronograma y Talleres ETAIC (Hitos del Trabajo)
-
-| Fecha | Hito / Taller | Entregable / Producto |
-| :--- | :--- | :--- |
-| **M 27 oct** | Resumen de la práctica y Mini hito | Elección de tema, enfoque y variables. |
-| **M 3 nov** | **Taller 1:** Introducción y Estado del Arte | Sello 1 · Objetivos y $\ge 3$ fuentes con DOI en gestor. |
-| **L 9 nov** | **Taller 2:** Datos, Método y Resultados | Sello 2 · Ejecución de limpieza, $N$ final, figuras y tablas. |
-| **M 10 nov** | **Taller 3:** Discusión, Conclusiones y Resumen | Sello 3 · Borrador anónimo completo (hasta 23:59). |
-| **L 16 nov** | **Taller 4:** Revisión por pares | Sello 4 · Informe de revisión emitido sobre otro grupo. |
-| **V 20 nov** | Versión Final | Carta de respuesta a revisores + Artículo definitivo en Moodle. |
-| **23 nov - 1 dic** | **Jornadas ETAIC** | Exposición oral (12 min exposición + 4 min preguntas). |
 
 ---
 
-## 8. Declaración sobre el Uso de Inteligencia Artificial
+## 7. Declaración sobre el Uso de Inteligencia Artificial
 
 > De conformidad con la normativa docente de ETAIC (curso 2026-27):  
 > *«La IA es un apoyo puntual o un mecanismo de consulta. Sin embargo, la IA no realiza el trabajo; si se detecta un trabajo realizado con IA se da por suspensa toda la evaluación.»*
@@ -146,9 +133,9 @@ python3 -m unittest discover tests
 
 ---
 
-## 9. Autores y Licencia
+##89. Autores y Licencia
 
-* **Autores:** [Nombres y Apellidos del Grupo]
+* **Autores:** Rubén González Sánchez, Julen San Román Larraya y Eusebio Gómez Sánchez
 * **Titulación:** Grado en Ingeniería Informática / ADET · Universidad Pontificia de Salamanca (UPSA)
 * **Licencia:** Material académico desarrollado para la asignatura ETAIC (2026-27). Prohibida su difusión externa sin autorización expresa de los autores y la coordinación docente.
 
