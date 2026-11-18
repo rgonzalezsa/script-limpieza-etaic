@@ -92,6 +92,11 @@ class CleaningConfig:
         "asistencia_pct", "nota_media", "mov_modo"
     )
 
+    variables_estudio: tuple[str, ...] = (
+        "titulacion", "curso", "nota_media", "fut_perfil", "fut_practicas",
+        "fut_ingles", "fut_certificaciones", "fut_salario_esperado", "fut_confianza_empleo"
+    )
+
     validos: Mapping[str, tuple[str, ...]] = field(
         default_factory=lambda: {
             "titulacion": ("INF", "ADET"),
@@ -140,7 +145,7 @@ class CleaningConfig:
 
     rangos_operativos: Mapping[str, tuple[float, float]] = field(
         default_factory=lambda: {
-            "edad": (17.0, 50.0), "trabaja_horas": (0.0, 50.0), "desplaz_min": (0.0, 180.0),
+            "trabaja_horas": (0.0, 50.0), "desplaz_min": (0.0, 180.0),
             "sue_horas_semana": (4.5, 12.0), "sue_horas_finde": (5.0, 13.0),
             "sue_pantalla_antes_min": (0.0, 300.0), "sue_cafeina_tazas": (0.0, 15.0),
             "sue_despertares": (0.0, 10.0), "tra_horas_estudio_sem": (0.0, 80.0),
@@ -251,6 +256,7 @@ class Findings:
         self.mask_dup = pd.Series(False, index=index)
         self.mask_crit = pd.Series(False, index=index)
         self.mask_susp = pd.Series(False, index=index)
+        self.mask_excl_susp = pd.Series(False, index=index)
         self.mask_incomp = pd.Series(False, index=index)
         self.n_invalidos = pd.Series(0, index=index)
         self.n_sospechosos = pd.Series(0, index=index)
@@ -266,11 +272,13 @@ class Findings:
             for i in active_idx:
                 self._motivos[i].add(motivo)
 
-    def flag_sospechoso(self, mask: pd.Series, motivo: str) -> None:
+    def flag_sospechoso(self, mask: pd.Series, motivo: str, excluye: bool = True) -> None:
         m = mask.fillna(False).astype(bool)
         if m.any():
             active_idx = m.index[m]
             self.mask_susp.loc[active_idx] = True
+            if excluye:
+                self.mask_excl_susp.loc[active_idx] = True
             self.n_sospechosos.loc[active_idx] += 1
             for i in active_idx:
                 self._motivos[i].add(motivo)
@@ -357,19 +365,24 @@ class DatasetCleaner:
 
         excluido = np.isin(estado_global, [RecordStatus.DUPLICADO.value, RecordStatus.NO_FIABLE.value])
         if self.config.excluir_en_revision:
-            excluido |= (estado_global == RecordStatus.EN_REVISION.value)
+            excluido |= (estado_global == RecordStatus.EN_REVISION.value) & findings.mask_excl_susp.to_numpy()
 
         recom_map = {
             RecordStatus.DUPLICADO.value: "Descartado: fila duplicada",
             RecordStatus.NO_FIABLE.value: "Excluido: contiene anomalías físicas o lógicas críticas",
-            RecordStatus.EN_REVISION.value: (
-                "Excluido por criterio estricto: valor atípico o inverosímil"
-                if self.config.excluir_en_revision
-                else "Revisión manual requerida (anomalías atípicas no críticas)"
-            ),
             RecordStatus.INCOMPLETO.value: "Admitido con reserva: faltan datos obligatorios para ciertos análisis",
             RecordStatus.VALIDO.value: "Admitido plenamente para análisis estadístico principal",
         }
+        recomendaciones = [
+            (
+                "Excluido por criterio estricto: valor atípico en variable de estudio"
+                if exc
+                else "Conservado con advertencia: valor atípico en variable ajena al estudio"
+            )
+            if est == RecordStatus.EN_REVISION.value
+            else recom_map[est]
+            for est, exc in zip(estado_global, excluido)
+        ]
 
         df_clasif = pd.DataFrame({
             "id": df["id"],
@@ -380,7 +393,7 @@ class DatasetCleaner:
             "n_ausentes": findings.n_ausentes,
             "n_no_aplicables": findings.n_no_aplicables,
             "excluido": excluido,
-            "recomendacion": [recom_map[s] for s in estado_global],
+            "recomendacion": recomendaciones,
         })
 
         # Partición en admitidos y excluidos
@@ -493,8 +506,10 @@ class DatasetCleaner:
                 atyp = s.notna() & ((s < min_o) | (s > max_o))
                 if atyp.any():
                     tag = f"[{int(min_o) if min_o.is_integer() else min_o}, {int(max_o) if max_o.is_integer() else max_o}]"
-                    ledger.record_batch(df.loc[atyp, "id"], col, s.loc[atyp], s.loc[atyp], f"Valor atípico fuera de rango operativo {tag}", "ADVERTENCIA")
-                    findings.flag_sospechoso(atyp, f"Valor atípico en '{col}'")
+                    excluye_atip = col in self.config.variables_estudio
+                    sufijo = "excluye registro" if (excluye_atip and self.config.excluir_en_revision) else "conservado con advertencia"
+                    ledger.record_batch(df.loc[atyp, "id"], col, s.loc[atyp], s.loc[atyp], f"Valor atípico fuera de rango operativo {tag} ({sufijo})", "ADVERTENCIA")
+                    findings.flag_sospechoso(atyp, f"Valor atípico en '{col}'", excluye=excluye_atip)
 
         if "fecha_respuesta" in df.columns:
             f = parsear_fechas_hibridas(df["fecha_respuesta"])
@@ -568,7 +583,7 @@ class DatasetCleaner:
              (th > 0.0) & tt.isna()),
             (ValidationRule("COH_TRA_02", "No trabaja pero declara tipo de empleo", ("trabaja_horas", "tra_tipo"), Severity.ADVERTENCIA,
                             "(trabaja_horas == 0) & tra_tipo.notna()", "Declara no trabajar (0 h) pero cumplimenta detalles del sector laboral",
-                            "Marcar como SOSPECHOSO (EN_REVISION)", False),
+                            "Aviso de coherencia (No excluye registro)", False),
              (th == 0.0) & tt.notna()),
             (ValidationRule("COH_TRA_03", "Datos laborales sin horas de trabajo", ("trabaja_horas", "tra_tipo"), Severity.INFORMATIVA,
                             "trabaja_horas.isna() & tra_tipo.notna()", "Cumplimenta detalles laborales pero omite las horas semanales trabajadas",
@@ -580,19 +595,19 @@ class DatasetCleaner:
              (mm == "Coche") & ma.isna()),
             (ValidationRule("COH_MOV_02", "Valora aparcamiento sin usar coche", ("mov_modo", "mov_aparcar_facil"), Severity.ADVERTENCIA,
                             "mov_modo.notna() & (mov_modo != 'Coche') & mov_aparcar_facil.notna()", "Responde sobre la facilidad de aparcar sin acudir en coche al campus",
-                            "Marcar como SOSPECHOSO (EN_REVISION)", False),
+                            "Aviso de coherencia (No excluye registro)", False),
              mm.notna() & (mm != "Coche") & ma.notna()),
             (ValidationRule("COH_IA_01", "IA Ninguna con uso activo", ("ia_herramienta", "ia_frecuencia"), Severity.ADVERTENCIA,
                             "(ia_herramienta == 'Ninguna') & (ia_frecuencia > 1)", "Declara no usar herramientas de IA pero reporta frecuencia de uso activa",
-                            "Marcar como SOSPECHOSO (EN_REVISION)", False),
+                            "Aviso de coherencia (No excluye registro)", False),
              (ih == "Ninguna") & (ifreq > 1.0)),
             (ValidationRule("COH_IA_02", "Contradicción frecuencia y declaración IA", ("ia_frecuencia", "ia_declara_uso"), Severity.ADVERTENCIA,
-                            "(ia_frecuencia == 1) & (ia_declara_uso == 'Siempre')", "Declara no usar nunca IA pero afirma declarar su uso siempre en trabajos",
-                            "Marcar como SOSPECHOSO (EN_REVISION)", False),
+                            "(ia_frecuencia == 1) & (ia_declara_uso == 'Siempre')", "Frecuencia de uso de IA = 1 (nunca) pero responde 'Siempre' a si ha usado IA en sus trabajos",
+                            "Aviso de coherencia (No excluye registro)", False),
              (ifreq == 1.0) & (idcl == "Siempre")),
             (ValidationRule("COH_TRA_04", "Carga extrema trabajo + estudio", ("trabaja_horas", "tra_horas_estudio_sem"), Severity.ADVERTENCIA,
                             "(trabaja_horas + tra_horas_estudio_sem) > 112", "Carga semanal combinada supera 16 horas diarias de dedicación",
-                            "Marcar como SOSPECHOSO (EN_REVISION)", False),
+                            "Aviso de coherencia (No excluye registro)", False),
              th.notna() & te.notna() & ((th + te) > 112.0)),
             (ValidationRule("COH_ECO_02", "Gasto supera ingresos declarados", ("eco_gasto_mes", "eco_ingresos_mes", "eco_ayuda_familiar"), Severity.INFORMATIVA,
                             "eco_gasto_mes > (eco_ingresos_mes + eco_ayuda_familiar + 1)", "Gasto mensual superior a ingresos y ayudas familiares (financiamiento por ahorro o crédito)",
@@ -620,11 +635,12 @@ class DatasetCleaner:
             casos_idx = df.index[mask].tolist()
             if casos_idx:
                 ids_trunc = ", ".join([str(df.at[i, "id"]) for i in casos_idx[:15]]) + (" ..." if len(casos_idx) > 15 else "")
-                afecta_global = (rule.severidad in (Severity.CRITICA, Severity.ADVERTENCIA)) or (rule.accion == "Marcar como INCOMPLETO")
+                afecta_global = rule.severidad == Severity.CRITICA or rule.excluye_registro or (rule.accion == "Marcar como INCOMPLETO")
                 alertas.append(InconsistencyAlert(rule.regla_id, rule.descripcion, rule.severidad.value, len(casos_idx), ids_trunc, afecta_global, rule.excluye_registro))
+                # La bandera excluye_registro manda: una regla con False nunca puede sacar el registro.
                 if rule.severidad == Severity.CRITICA:
                     findings.flag_critico(mask, rule.descripcion)
-                elif rule.severidad == Severity.ADVERTENCIA:
+                elif rule.excluye_registro:
                     findings.flag_sospechoso(mask, rule.descripcion)
                 elif rule.accion == "Marcar como INCOMPLETO":
                     findings.flag_incompleto(mask, rule.descripcion)
@@ -642,12 +658,17 @@ class DatasetCleaner:
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
         n_tot, n_adm, n_exc = len(df_orig), len(df_limp), len(df_excl)
         counts = df_clas["estado_global"].value_counts().to_dict()
+        en_rev_mask = df_clas["estado_global"] == RecordStatus.EN_REVISION.value
+        n_rev_exc = int((en_rev_mask & df_clas["excluido"]).sum())
+        n_rev_con = int((en_rev_mask & (~df_clas["excluido"])).sum())
         tasa = round((n_adm / n_tot) * 100.0, 2) if n_tot else 0.0
 
         resumen = pd.DataFrame({
             "concepto": [
                 "Total registros evaluados", "Registros VÁLIDOS (completos y conformes)",
                 "Registros INCOMPLETOS (ausencias no críticas)", "Registros EN REVISIÓN (atípicos / advertencias)",
+                "  — En revisión excluidos (atípicos en variables de estudio)",
+                "  — En revisión conservados (atípicos en variables ajenas al estudio)",
                 "Registros NO FIABLES (excluidos por anomalía crítica)", "Registros DUPLICADOS (excluidos por redundancia)",
                 "Total registros admitidos (Datos limpios)", "Total registros excluidos (Datos excluidos)",
                 "Tasa de fiabilidad global del dataset (%)", "Celdas vacías en dataset de entrada",
@@ -656,11 +677,12 @@ class DatasetCleaner:
             ],
             "valor": [
                 str(n_tot), str(counts.get(RecordStatus.VALIDO.value, 0)), str(counts.get(RecordStatus.INCOMPLETO.value, 0)),
-                str(counts.get(RecordStatus.EN_REVISION.value, 0)), str(counts.get(RecordStatus.NO_FIABLE.value, 0)),
+                str(counts.get(RecordStatus.EN_REVISION.value, 0)), str(n_rev_exc), str(n_rev_con),
+                str(counts.get(RecordStatus.NO_FIABLE.value, 0)),
                 str(counts.get(RecordStatus.DUPLICADO.value, 0)), str(n_adm), str(n_exc), f"{tasa}%",
                 str(int(df_orig.isna().sum().sum())), str(int(df_limp.isna().sum().sum())), str(len(ledger.to_dataframe())),
                 "Activa (÷10)" if self.config.recuperar_nota_x10 else "Inactiva (anulada a NaN)",
-                "Excluidos" if self.config.excluir_en_revision else "Admitidos con marca",
+                "Exclusión por variable de estudio" if self.config.excluir_en_revision else "Admitidos con marca",
             ]
         })
 

@@ -194,10 +194,21 @@ class TestPipelineCalidadEtaic(unittest.TestCase):
 
     # 9. Preguntas condicionales incoherentes (responder sin aplicar)
     def test_preguntas_condicionales_incoherentes(self) -> None:
+        # Aviso de coherencia (excluye_registro=False): se registra, pero no cambia el estado.
         df = self._crear_df(mov_modo="A pie", mov_aparcar_facil=4.0)
         res = self.cleaner.clean(df)
         clasif = res.clasificacion_registros.iloc[0]
-        self.assertEqual(clasif["estado_global"], RecordStatus.EN_REVISION.value)
+        self.assertEqual(clasif["estado_global"], RecordStatus.VALIDO.value)
+        self.assertIn("sin acudir en coche", clasif["motivos"])
+
+    # 9b. Regresión (COH_TRA_02): ni con política estricta un aviso de coherencia excluye el registro
+    def test_aviso_coherencia_no_excluye_con_politica_estricta(self) -> None:
+        estricto = DatasetCleaner(config=CleaningConfig(excluir_en_revision=True))
+        res = estricto.clean(self._crear_df(trabaja_horas=0.0, tra_tipo="Hostelería"))
+        clasif = res.clasificacion_registros.iloc[0]
+        self.assertFalse(clasif["excluido"])
+        self.assertEqual(len(res.datos_limpios), 1)
+        self.assertIn("COH_TRA_02", list(res.avisos_coherencia["regla_id"]))
 
     # 10. Contradicciones críticas entre variables
     def test_contradicciones_criticas(self) -> None:
@@ -362,17 +373,54 @@ class TestPipelineCalidadEtaic(unittest.TestCase):
         self.assertIn("imposible", clasif["motivos"].lower())
         self.assertNotIn("falta campo obligatorio", clasif["motivos"].lower())
 
-    # 26. Política estricta: registros atípicos (EN_REVISION) quedan excluidos
-    def test_politica_estricta_excluye_atipicos(self) -> None:
+    # 26. Política estricta: excluye atípicos en variables de estudio, pero conserva atípicos en variables ajenas
+    def test_politica_estricta_excluye_atipicos_solo_en_variables_estudio(self) -> None:
         cleaner_tajante = DatasetCleaner(config=CleaningConfig(excluir_en_revision=True))
-        df = self._crear_df(sue_horas_semana=14.0)
-        res = cleaner_tajante.clean(df)
-        clasif = res.clasificacion_registros.iloc[0]
-        self.assertEqual(clasif["estado_global"], RecordStatus.EN_REVISION.value)
-        self.assertTrue(clasif["excluido"])
-        self.assertEqual(len(res.datos_limpios), 0)
-        self.assertEqual(len(res.datos_excluidos), 1)
-        self.assertIn("atípico", clasif["motivos"].lower())
+        # Atípico en variable ajena al estudio (sueño = 14 h): se marca EN_REVISION pero se conserva
+        res_sue = cleaner_tajante.clean(self._crear_df(sue_horas_semana=14.0))
+        clasif_sue = res_sue.clasificacion_registros.iloc[0]
+        self.assertEqual(clasif_sue["estado_global"], RecordStatus.EN_REVISION.value)
+        self.assertFalse(clasif_sue["excluido"])
+        self.assertEqual(len(res_sue.datos_limpios), 1)
+        self.assertIn("atípico", clasif_sue["motivos"].lower())
+
+        # Atípico en variable de estudio (salario esperado = 250000 €): se marca EN_REVISION y se excluye
+        res_sal = cleaner_tajante.clean(self._crear_df(fut_salario_esperado=250000.0))
+        clasif_sal = res_sal.clasificacion_registros.iloc[0]
+        self.assertEqual(clasif_sal["estado_global"], RecordStatus.EN_REVISION.value)
+        self.assertTrue(clasif_sal["excluido"])
+        self.assertEqual(len(res_sal.datos_limpios), 0)
+        self.assertEqual(len(res_sal.datos_excluidos), 1)
+
+    # 27. Integración con el Excel original: N = 1.179 (643 INF, 536 ADET), 6 duplicados, 10 críticos, 5 salarios excluidos y 5 atípicos conservados
+    def test_integracion_excel_original_n1179(self) -> None:
+        excel_path = Path("excel/ETAIC_Dataset_VidaUniversitaria2026.xlsx")
+        if not excel_path.exists():
+            self.skipTest("No se encontró el Excel original.")
+        df_raw = pd.read_excel(excel_path, sheet_name="Datos")
+        df_dict = pd.read_excel(excel_path, sheet_name="Diccionario")
+        res = DatasetCleaner(config=CleaningConfig(excluir_en_revision=True)).clean(df_raw, df_dict)
+
+        self.assertEqual(len(df_raw), 1200)
+        self.assertEqual(len(res.datos_limpios), 1179)
+        self.assertEqual(len(res.datos_excluidos), 21)
+        self.assertTrue(res.datos_limpios["id"].is_unique)
+
+        vc_tit = res.datos_limpios["titulacion"].value_counts().to_dict()
+        self.assertEqual(vc_tit.get("INF"), 643)
+        self.assertEqual(vc_tit.get("ADET"), 536)
+
+        clas = res.clasificacion_registros
+        self.assertEqual(int((clas["estado_global"] == RecordStatus.DUPLICADO.value).sum()), 6)
+        self.assertEqual(int((clas["estado_global"] == RecordStatus.NO_FIABLE.value).sum()), 10)
+
+        ids_limpios = set(res.datos_limpios["id"].astype(str))
+        # 5 registros conservados con advertencias en sueño (4) e ingresos (1)
+        for id_conservado in ("E0566", "E0802", "E0933", "E1022", "E1130"):
+            self.assertIn(id_conservado, ids_limpios)
+        # 5 registros excluidos por expectativas salariales extremas
+        for id_excluido in ("E0529", "E0642", "E0687", "E0874", "E0907"):
+            self.assertNotIn(id_excluido, ids_limpios)
 
 
 if __name__ == "__main__":

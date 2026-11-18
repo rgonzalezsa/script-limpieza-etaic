@@ -41,10 +41,11 @@ El pipeline ejecuta una auditoría atómica determinista sobre las 1.200 respues
 | **Muestra de partida ($N_{\text{total}}$)** | **1.200** | Respuestas brutas en `Datos`. |
 | **Duplicados exactos eliminados** | **6** | Descartados por redundancia idéntica de fila. |
 | **Registros no fiables excluidos** | **10** | Anomalías críticas (incoherencia lógica o límites físicos imposibles). |
-| **Registros atípicos excluidos (criterio estricto)** | **10** | Excluidos por inverosimilitud empírica (14h de sueño, salario >100k€, etc.). |
-| **Muestra analítica final ($N_{\text{limpio}}$)** | **1.174** | **97,83% de fiabilidad global** admitida para el análisis. |
+| **Registros atípicos excluidos (variables de estudio)** | **5** | Expectativas salariales extremas fuera de $[12.000\ €, 90.000\ €]$ (>200k€). |
+| **Muestra analítica final ($N_{\text{limpio}}$)** | **1.179** | **98,25% de fiabilidad global** admitida para el análisis (643 INF, 536 ADET). |
 | *— Registros válidos (completos)* | *865* | Datos 100% conformes y sin valores nulos obligatorios. |
 | *— Registros incompletos (admitidos)* | *309* | Válidos para análisis por bloques (omisiones no críticas). |
+| *— Registros en revisión conservados* | *5* | Atípicos en variables ajenas al estudio (4 de sueño y 1 de ingresos). |
 | **Categorías textuales normalizadas** | **91** | Corrección de erratas sintácticas (`inf` $\rightarrow$ `INF`, etc.). |
 | **Eventos de auditoría registrados** | **116** | Trazabilidad celda por celda exportada en bitácora. |
 
@@ -102,8 +103,8 @@ python3 limpiar_dataset_etaic.py --entrada excel/ETAIC_Dataset_VidaUniversitaria
 
 ### B. Artefactos Generados en `salida_limpieza/`:
 * `ETAIC_Dataset_LIMPIO.xlsx`: Libro de trabajo profesional con 8 hojas formateadas:
-  1. **`Datos_limpios`**: Muestra purificada ($N=1174$) lista para tablas dinámicas y análisis estadístico.
-  2. **`Datos_excluidos`**: 26 registros descartados (6 duplicados, 10 anomalías críticas y 10 valores atípicos/inverosímiles).
+  1. **`Datos_limpios`**: Muestra purificada ($N=1179$) lista para tablas dinámicas y análisis estadístico.
+  2. **`Datos_excluidos`**: 21 registros descartados (6 duplicados, 10 anomalías críticas y 5 valores atípicos salariales).
   3. **`Clasificacion_registros`**: Diagnóstico de fiabilidad registro por registro.
   4. **`Resumen`**: Estadísticas globales del proceso de limpieza.
   5. **`Reglas_aplicadas`**: Catálogo formal de las 15 reglas de validación y coherencia.
@@ -119,10 +120,23 @@ El motor cuenta con **26 pruebas automatizadas** que cubren valores físicamente
 python3 -m unittest discover tests
 ```
 
+---
+
+## 7. Cronograma y Talleres ETAIC (Hitos del Trabajo)
+
+| Fecha | Hito / Taller | Entregable / Producto |
+| :--- | :--- | :--- |
+| **M 27 oct** | Resumen de la práctica y Mini hito | Elección de tema, enfoque y variables. |
+| **M 3 nov** | **Taller 1:** Introducción y Estado del Arte | Sello 1 · Objetivos y $\ge 3$ fuentes con DOI en gestor. |
+| **L 9 nov** | **Taller 2:** Datos, Método y Resultados | Sello 2 · Ejecución de limpieza, $N$ final, figuras y tablas. |
+| **M 10 nov** | **Taller 3:** Discusión, Conclusiones y Resumen | Sello 3 · Borrador anónimo completo (hasta 23:59). |
+| **L 16 nov** | **Taller 4:** Revisión por pares | Sello 4 · Informe de revisión emitido sobre otro grupo. |
+| **V 20 nov** | Versión Final | Carta de respuesta a revisores + Artículo definitivo en Moodle. |
+| **23 nov - 1 dic** | **Jornadas ETAIC** | Exposición oral (12 min exposición + 4 min preguntas). |
 
 ---
 
-## 7. Declaración sobre el Uso de Inteligencia Artificial
+## 8. Declaración sobre el Uso de Inteligencia Artificial
 
 > De conformidad con la normativa docente de ETAIC (curso 2026-27):  
 > *«La IA es un apoyo puntual o un mecanismo de consulta. Sin embargo, la IA no realiza el trabajo; si se detecta un trabajo realizado con IA se da por suspensa toda la evaluación.»*
@@ -133,9 +147,9 @@ python3 -m unittest discover tests
 
 ---
 
-##89. Autores y Licencia
+## 9. Autores y Licencia
 
-* **Autores:** Rubén González Sánchez, Julen San Román Larraya y Eusebio Gómez Sánchez
+* **Autores:** [Nombres y Apellidos del Grupo]
 * **Titulación:** Grado en Ingeniería Informática / ADET · Universidad Pontificia de Salamanca (UPSA)
 * **Licencia:** Material académico desarrollado para la asignatura ETAIC (2026-27). Prohibida su difusión externa sin autorización expresa de los autores y la coordinación docente.
 
