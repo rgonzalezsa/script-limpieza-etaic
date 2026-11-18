@@ -3,7 +3,7 @@
 > **Trabajo Final:** Artículo científico breve a partir de datos comunes, revisión por pares y Jornadas ETAIC  
 > **Asignatura:** Elaboración de Trabajos Académicos con Indicadores de Calidad (ETAIC)  
 > **Institución:** Facultad de Informática · Universidad Pontificia de Salamanca (UPSA)  
-> **Formato de Publicación:** Plantilla IEEE (Ingeniería Informática) / APA 7 (ADET)  
+> **Formato de Publicación:** Plantilla IEEE (Ingeniería Informática)  
 > **Dataset Base:** *«Encuesta sobre vida universitaria 2026»* (Datos simulados, S. Alonso Rollán)
 
 ---
